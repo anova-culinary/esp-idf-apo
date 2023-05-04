@@ -32,7 +32,7 @@ typedef struct esp_transport_keepalive {
     int             keep_alive_count;       /*!< Keep-alive packet retry send count */
 } esp_transport_keep_alive_t;
 
-typedef struct esp_transport_internal* esp_transport_list_handle_t;
+typedef struct esp_transport_list_t* esp_transport_list_handle_t;
 typedef struct esp_transport_item_t* esp_transport_handle_t;
 
 typedef int (*connect_func)(esp_transport_handle_t t, const char *host, int port, int timeout_ms);
@@ -44,6 +44,10 @@ typedef int (*connect_async_func)(esp_transport_handle_t t, const char *host, in
 typedef esp_transport_handle_t (*payload_transfer_func)(esp_transport_handle_t);
 
 typedef struct esp_tls_last_error* esp_tls_error_handle_t;
+
+/**
+ * @brief Error types for TCP connection issues not covered in socket's errno
+ */
 
 /**
  * @brief      Create transport list
@@ -320,25 +324,27 @@ esp_err_t esp_transport_set_parent_transport_func(esp_transport_handle_t t, payl
  * @return
  *            - valid pointer of esp_error_handle_t
  *            - NULL if invalid transport handle
-  */
+ */
 esp_tls_error_handle_t esp_transport_get_error_handle(esp_transport_handle_t t);
 
 /**
- * @brief      Set keep-alive configuration
+ * @brief      Get and clear last captured socket errno
  *
- * @param[in]  t               The transport handle
- * @param[in]  keep_alive_cfg  The keep-alive config
+ * Socket errno is internally stored whenever any of public facing API
+ * for reading, writing, polling or connection fails returning negative return code.
+ * The error code corresponds to the `SO_ERROR` value retrieved from the underlying
+ * transport socket using `getsockopt()` API. After reading the captured errno,
+ * the internal value is cleared to 0.
+ *
+ * @param[in] t The transport handle
+ *
+ * @return
+ *   - >=0 Last captured socket errno
+ *   - -1  Invalid transport handle or invalid transport's internal error storage
  */
-void esp_transport_set_keep_alive(esp_transport_handle_t t, esp_transport_keep_alive_t *keep_alive_cfg);
+int esp_transport_get_errno(esp_transport_handle_t t);
 
-/**
- * @brief      Get keep-alive config of this transport
- *
- * @param[in]  t        The transport handle
- *
- * @return     The keep-alive configuration
- */
-void *esp_transport_get_keep_alive(esp_transport_handle_t t);
+
 #ifdef __cplusplus
 }
 #endif
