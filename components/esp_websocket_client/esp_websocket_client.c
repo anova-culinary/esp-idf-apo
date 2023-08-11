@@ -912,3 +912,58 @@ esp_err_t esp_websocket_register_events(esp_websocket_client_handle_t client,
     }
     return esp_event_handler_register_with(client->event_handle, WEBSOCKET_EVENTS, event, event_handler, event_handler_arg);
 }
+
+////////////////////////////////////////////////////////////////
+//   Anova added functions
+////////////////////////////////////////////////////////////////
+
+esp_err_t esp_websocket_client_is_stopped(esp_websocket_client_handle_t client, uint32_t *stopped)
+{
+    uint32_t b = 0;
+    if (client == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (stopped == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    b = ((STOPPED_BIT & xEventGroupGetBits(client->status_bits)) ? 1 : 0);
+
+    *stopped = b;
+    return ESP_OK;
+}
+
+esp_err_t esp_websocket_client_is_running(esp_websocket_client_handle_t client, uint32_t *running)
+{
+    uint32_t b = 0;
+    if (client == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (running == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    b = (client->run ? 1 : 0);
+
+    *running = b;
+    return ESP_OK;
+}
+
+esp_err_t esp_websocket_client_get_state_bits(esp_websocket_client_handle_t client, uint32_t *state_bits)
+{
+    uint32_t b = 0;
+    if (client == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (state_bits == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    b |= (client->run ? 1 : 0);
+    b |= ((STOPPED_BIT & xEventGroupGetBits(client->status_bits)) ? 0 : 2);
+    b |= (client->state == WEBSOCKET_STATE_UNKNOW ? 0 : 4);
+    b |= ((CLOSE_FRAME_SENT_BIT & xEventGroupGetBits(client->status_bits)) ? 0x100 : 0);
+
+    *state_bits = b;
+    return ESP_OK;
+}
