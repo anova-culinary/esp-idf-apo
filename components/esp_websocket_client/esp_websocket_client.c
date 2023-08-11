@@ -144,6 +144,7 @@ static esp_err_t esp_websocket_client_dispatch_event(esp_websocket_client_handle
     event_data.op_code = client->last_opcode;
     event_data.payload_len = client->payload_len;
     event_data.payload_offset = client->payload_offset;
+    event_data.fin = esp_transport_ws_get_fin_flag(client->transport);;
 
     if ((err = esp_event_post_to(client->event_handle,
                                  WEBSOCKET_EVENTS, event,
