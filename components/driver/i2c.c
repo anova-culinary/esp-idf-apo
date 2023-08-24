@@ -500,6 +500,11 @@ static void IRAM_ATTR i2c_isr_handler_default(void *arg)
         } else {
             // Do nothing if there is no proper event.
             i2c_isr_count_nothing++;
+            if (i2c_isr_count_nothing > 1000)
+            {
+                i2c_hal_disable_intr_mask(&(i2c_context[i2c_num].hal), I2C_INTR_MASK);
+                i2c_hal_clr_intsts_mask(&(i2c_context[i2c_num].hal), I2C_INTR_MASK);
+            }
 
             i2c_cmd_evt_t evt = {
                 .type = I2C_CMD_EVT_ALIVE,
@@ -1466,6 +1471,7 @@ esp_err_t i2c_master_cmd_begin(i2c_port_t i2c_num, i2c_cmd_handle_t cmd_handle, 
                     ret = ESP_ERR_TIMEOUT;
                     i2c_hw_fsm_reset(i2c_num);
                     clear_bus_cnt[i2c_num] = 0;
+                    printf("I2C RECOVER!!!\n");
                     break;
                 }
 
