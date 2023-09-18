@@ -156,7 +156,7 @@ static esp_err_t esp_websocket_client_dispatch_event(esp_websocket_client_handle
     return esp_event_loop_run(client->event_handle, 0);
 }
 
-static esp_err_t esp_websocket_client_abort_connection(esp_websocket_client_handle_t client)
+static esp_err_t esp_websocket_client_abort_connection(esp_websocket_client_handle_t client, int code)
 {
     ESP_WS_CLIENT_STATE_CHECK(TAG, client, return ESP_FAIL);
     esp_transport_close(client->transport);
@@ -167,7 +167,7 @@ static esp_err_t esp_websocket_client_abort_connection(esp_websocket_client_hand
         ESP_LOGI(TAG, "Reconnect after %d ms", client->wait_timeout_ms);
     }
     client->state = WEBSOCKET_STATE_WAIT_TIMEOUT;
-    esp_websocket_client_dispatch_event(client, WEBSOCKET_EVENT_DISCONNECTED, NULL, 0);
+    esp_websocket_client_dispatch_event(client, WEBSOCKET_EVENT_DISCONNECTED, NULL, code); // use the length field to pass a response code (if available) otherwise code should be 0
     return ESP_OK;
 }
 
@@ -611,12 +611,13 @@ static void esp_websocket_client_task(void *pv)
                     client->run = false;
                     break;
                 }
-                if (esp_transport_connect(client->transport,
+                int rc;
+                if ( (rc = esp_transport_connect(client->transport,
                                           client->config->host,
                                           client->config->port,
-                                          client->config->network_timeout_ms) < 0) {
+                                          client->config->network_timeout_ms)) < 0) {
                     ESP_LOGE(TAG, "Error transport connect");
-                    esp_websocket_client_abort_connection(client);
+                    esp_websocket_client_abort_connection(client, rc);
                     break;
                 }
                 ESP_LOGD(TAG, "Transport connected to %s://%s:%d", client->config->scheme, client->config->host, client->config->port);
@@ -643,7 +644,7 @@ static void esp_websocket_client_task(void *pv)
                     if ( _tick_get_ms() - client->pingpong_tick_ms > client->config->pingpong_timeout_sec*1000 ) {
                         if (client->wait_for_pong_resp) {
                             ESP_LOGE(TAG, "Error, no PONG received for more than %d seconds after PING", client->config->pingpong_timeout_sec);
-                            esp_websocket_client_abort_connection(client);
+                            esp_websocket_client_abort_connection(client, 0);
                             break;
                         }
                     }
@@ -657,7 +658,7 @@ static void esp_websocket_client_task(void *pv)
 
                 if (esp_websocket_client_recv(client) == ESP_FAIL) {
                     ESP_LOGE(TAG, "Error receive data");
-                    esp_websocket_client_abort_connection(client);
+                    esp_websocket_client_abort_connection(client, 0);
                     break;
                 }
                 break;
@@ -690,7 +691,7 @@ static void esp_websocket_client_task(void *pv)
             read_select = esp_transport_poll_read(client->transport, 1000); //Poll every 1000ms
             if (read_select < 0) {
                 ESP_LOGE(TAG, "Network error: esp_transport_poll_read() returned %d, errno=%d", read_select, errno);
-                esp_websocket_client_abort_connection(client);
+                esp_websocket_client_abort_connection(client, 0);
             }
         } else if (WEBSOCKET_STATE_WAIT_TIMEOUT == client->state) {
             // waiting for reconnecting...
@@ -880,7 +881,7 @@ static int esp_websocket_client_send_with_opcode(esp_websocket_client_handle_t c
         if (wlen < 0 || (wlen == 0 && need_write != 0)) {
             ret = wlen;
             ESP_LOGE(TAG, "Network error: esp_transport_write() returned %d, errno=%d", ret, errno);
-            esp_websocket_client_abort_connection(client);
+            esp_websocket_client_abort_connection(client, 0);
             goto unlock_and_return;
         }
         current_opcode = 0;

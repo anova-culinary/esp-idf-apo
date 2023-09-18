@@ -219,7 +219,8 @@ static int ws_connect(esp_transport_handle_t t, const char *host, int port, int 
     char *server_key = get_http_header(ws->buffer, "Sec-WebSocket-Accept:");
     if (server_key == NULL) {
         ESP_LOGE(TAG, "Sec-WebSocket-Accept not found");
-        return -1;
+        ESP_LOGW(TAG, "header:<%s>", ws->buffer);
+        return -401; // quick hack -- mostly likely we are getting a 401 (Unauthorized) response.. now we can handle it in esp_websocket_client.c
     }
 
     // See esp_crypto_sha1() arg size
