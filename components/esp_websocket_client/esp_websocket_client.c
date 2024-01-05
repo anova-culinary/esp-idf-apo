@@ -158,7 +158,13 @@ static esp_err_t esp_websocket_client_dispatch_event(esp_websocket_client_handle
 
 static esp_err_t esp_websocket_client_abort_connection(esp_websocket_client_handle_t client, int code)
 {
+    TickType_t timeout = 8000 / portTICK_PERIOD_MS;
     ESP_WS_CLIENT_STATE_CHECK(TAG, client, return ESP_FAIL);
+
+    if (xSemaphoreTakeRecursive(client->lock, timeout) != pdPASS) {
+        ESP_LOGE(TAG, "Could not lock ws-client within %d timeout", timeout);
+        return ESP_FAIL;
+    }
     esp_transport_close(client->transport);
 
     if (client->config->auto_reconnect) {
@@ -168,6 +174,7 @@ static esp_err_t esp_websocket_client_abort_connection(esp_websocket_client_hand
     }
     client->state = WEBSOCKET_STATE_WAIT_TIMEOUT;
     esp_websocket_client_dispatch_event(client, WEBSOCKET_EVENT_DISCONNECTED, NULL, code); // use the length field to pass a response code (if available) otherwise code should be 0
+    xSemaphoreGiveRecursive(client->lock);
     return ESP_OK;
 }
 
@@ -715,8 +722,29 @@ static void esp_websocket_client_task(void *pv)
     }
 
     esp_transport_close(client->transport);
-    xEventGroupSetBits(client->status_bits, STOPPED_BIT);
+    // Set the state before setting the STOPPED_BIT...
+    // If another task with higher priority has called  _close() followed immediately by _destroy()
+    // there is a risk of heap corruption.
+    // Here's the summary of events
+    /**
+     * 1. other task calls _close()
+     *      a. CLOSE opcode is sent
+     *      b. CLOSE_FRAME_SENT_BIT is set
+     *      c. wait for STOPPED_BIT to be set
+     * 2. websocket continues running
+     * 3. the server responds with a CLOSE opcode of its own
+     *      a. state is set to CLOSING
+     *      b. wait for connection to close (who is responsible for closing the connection when the client initiated a close?)
+     *      c. exit the loop
+     *      d. set STOPPED_BIT -- this causes the context switch allowing the initiator of the close to run again
+     * 4. initiator runs again and immediately calls _destroy()
+     *      a. all memory is freed
+     *      b. do more work until a task delay -- now we switch back to websocket task
+     * 5. websocket then sets the state to UNKNOWN -- we have just corrupted the heap
+    **/
+    // This is why we must set the state before setting the STOPPED_BIT
     client->state = WEBSOCKET_STATE_UNKNOW;
+    xEventGroupSetBits(client->status_bits, STOPPED_BIT);
     vTaskDelete(NULL);
 }
 
@@ -811,8 +839,11 @@ static esp_err_t esp_websocket_client_close_with_optional_body(esp_websocket_cli
 
     // If could not close gracefully within timeout, stop the client and disconnect
     client->run = false;
-    xEventGroupWaitBits(client->status_bits, STOPPED_BIT, false, true, portMAX_DELAY);
+    // If the calling task is higher priority than the websocket task, setting the state after the wait for STOPPED bit
+    // will likely lead to heap corruption, if the calling task immediately destroys the websocket client.
+    // Since we have no way of knowing this, we will set the state before waiting for the STOPPED bit.
     client->state = WEBSOCKET_STATE_UNKNOW;
+    xEventGroupWaitBits(client->status_bits, STOPPED_BIT, false, true, portMAX_DELAY);
     return ESP_OK;
 }
 
