@@ -835,6 +835,26 @@ int esp_transport_ws_poll_connection_closed(esp_transport_handle_t t, int timeou
                 // socket is readable, but reads zero bytes -- connection cleanly closed by FIN flag
                 return 1;
             }
+            /*
+            It appears the socket will have data waiting (at least for a secure connection) when the connection has been closed.
+            This data is saying the connection has been closed.
+            Reading the transport will generate an "error" that we can then lookup to see if the transport was indeed closed.
+             */
+            {
+                transport_ws_t *ws = esp_transport_get_context_data(t);
+                char buffer[8];
+                int header = 2; //number of bytes to try and read - it doesn't really matter, but this mimics the first step ws_read_header() takes
+                if (esp_transport_read(ws->parent, buffer, header, timeout_ms) <= 0) {
+                    // The esp_tls_get_and_clear_last_error may not work if connection is not secure... but works for
+                    // the Anova Oven since only secure connections are used.
+                    esp_err_t e = esp_tls_get_and_clear_last_error(esp_transport_get_error_handle(ws->parent), NULL, NULL);
+                    if (ESP_ERR_ESP_TLS_TCP_CLOSED_FIN == e)
+                    {
+                        ESP_LOGD(TAG, "transport closed by server");
+                        return 1;
+                    }
+                }
+            }
             ESP_LOGW(TAG, "esp_transport_ws_poll_connection_closed: unexpected data readable on socket=%d", sock);
         } else if (FD_ISSET(sock, &errset)) {
             int sock_errno = 0;
